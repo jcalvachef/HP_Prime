@@ -40,6 +40,11 @@ En la pestaña **Actions** del repositorio abra la última ejecución y descargu
 `PaviFlex-apk`; contiene `app-debug.apk`. Cópielo al teléfono e instálelo (Android pedirá permitir
 la instalación de aplicaciones de origen desconocido). Requiere Android 7.0 o superior.
 
+Todas las compilaciones usan la misma firma de prueba (`android/app/paviflex-debug.keystore`), así
+que una versión nueva se instala sobre la anterior y conserva los proyectos. Aun así, exporte el
+respaldo `.zip` de sus proyectos antes de actualizar o desinstalar: los datos viven dentro de la
+aplicación y se borran al desinstalarla.
+
 ## Clave de Google Maps
 
 El fondo Google Maps necesita una clave propia:

@@ -16,6 +16,16 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // Firma fija para las compilaciones de prueba: todas (locales y de GitHub Actions) comparten
+    // la misma firma, de modo que una versión nueva se instala sobre la anterior sin perder datos.
+    signingConfigs {
+        debug {
+            storeFile file('paviflex-debug.keystore')
+            storePassword 'android'
+            keyAlias 'paviflex'
+            keyPassword 'android'
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false

@@ -94,9 +94,16 @@ export async function obtenerPosicion(op: OpcionesGps = {}): Promise<PosGps> {
   const maximo = op.maximo ?? 15000;
   const objetivo = op.objetivo ?? 5;
   if (esNativo) {
-    let permiso = await Geolocation.checkPermissions();
-    if (permiso.location !== 'granted') permiso = await Geolocation.requestPermissions({ permissions: ['location'] });
-    if (permiso.location !== 'granted') throw new Error('Permiso de ubicación denegado. Actívelo en los ajustes de la aplicación.');
+    let concedido = false;
+    try {
+      // checkPermissions falla si la ubicación del dispositivo está apagada
+      let permiso = await Geolocation.checkPermissions();
+      if (permiso.location !== 'granted') permiso = await Geolocation.requestPermissions({ permissions: ['location'] });
+      concedido = permiso.location === 'granted';
+    } catch (e) {
+      throw new Error(mensajeGps(e));
+    }
+    if (!concedido) throw new Error('Permiso de ubicación denegado. Actívelo en los ajustes de la aplicación.');
   }
   return new Promise<PosGps>((ok, err) => {
     let mejor: PosGps | null = null;
@@ -145,7 +152,7 @@ export async function obtenerPosicion(op: OpcionesGps = {}): Promise<PosGps> {
 function mensajeGps(e: unknown): string {
   const m = String((e as { message?: string })?.message ?? e ?? '');
   if (/denied|permission/i.test(m)) return 'Permiso de ubicación denegado.';
-  if (/disabled|unavailable/i.test(m)) return 'La ubicación del dispositivo está desactivada.';
+  if (/disabled|unavailable|not enabled/i.test(m)) return 'La ubicación del dispositivo está desactivada. Actívela y vuelva a capturar la posición.';
   return 'No se obtuvo señal GPS. Verifique que la ubicación esté activa y que haya cielo despejado.';
 }
 

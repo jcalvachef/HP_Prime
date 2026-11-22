@@ -162,8 +162,13 @@ export function EditorDano() {
       if (params.get('nuevo') === '1' && !iniciado.current) {
         iniciado.current = true;
         nav(`/dano/${id}`, { replace: true });
-        if (!x.gps) void capturarGps();
-        if (esNativo && !x.foto) void ponerFoto(tomarFoto);
+        if (esNativo && !x.foto) {
+          // En el teléfono: primero la cámara y, al volver, la posición. Con la cámara abierta la
+          // aplicación queda en segundo plano y Android limita las lecturas de ubicación; además
+          // así el diálogo de permiso de ubicación no compite con la cámara.
+          await ponerFoto(tomarFoto);
+          if (vivo && !ref.current?.gps) void capturarGps();
+        } else if (!x.gps) void capturarGps();
       }
     })();
     return () => {
