@@ -1,0 +1,52 @@
+name: Compilar APK de PaviFlex
+
+on:
+  push:
+    paths:
+      - 'paviflex/**'
+      - '.github/workflows/android-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: paviflex
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: paviflex/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Dependencias
+        run: npm ci
+
+      - name: Pruebas unitarias
+        run: npm test
+
+      - name: Compilar la aplicación web y sincronizar con Android
+        run: npm run android:sync
+
+      - name: Compilar APK (debug)
+        working-directory: paviflex/android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Publicar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: PaviFlex-apk
+          path: paviflex/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
