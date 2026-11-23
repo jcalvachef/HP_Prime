@@ -238,7 +238,7 @@ export function VistaSector() {
                   <div className="meta">
                     {d.abscisa != null ? fmtPR(d.abscisa) : 'Sin abscisa'} · {d.carril || '–'}{t ? ` · ${textoDimensiones(d)}` : ''}
                   </div>
-                  <div className="meta tenue">{d.gps ? 'Con coordenadas' : 'Sin coordenadas'}{d.mapa ? ' · mapa Google' : ''}</div>
+                  <div className="meta tenue">{d.gps ? 'Con coordenadas' : 'Sin coordenadas'}{d.mapa ? ' · con mapa base' : ''}</div>
                 </div>
               </button>
             );

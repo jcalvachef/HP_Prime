@@ -3,6 +3,7 @@
  * proyectos, sectores, registros de daño y los binarios (fotografías y mapas).
  */
 import { openDB, type IDBPDatabase } from 'idb';
+import { descripcionAutomatica } from '../domain/formato';
 import { AJUSTES_POR_DEFECTO, type Ajustes, type Dano, type Proyecto, type Sector } from '../domain/types';
 
 const NOMBRE_BD = 'paviflex';
@@ -77,6 +78,42 @@ export async function obtenerDano(id: string): Promise<Dano | undefined> {
 }
 export async function guardarDano(d: Dano): Promise<void> {
   await (await bd()).put('danos', d);
+  avisarCambio(d);
+}
+
+const oyentesDano = new Map<string, Set<(d: Dano) => void>>();
+function avisarCambio(d: Dano) {
+  oyentesDano.get(d.id)?.forEach((f) => f(d));
+}
+/** Avisa cada vez que cambia el registro (desde cualquier pantalla o tarea en segundo plano). */
+export function suscribirDano(id: string, alCambiar: (d: Dano) => void): () => void {
+  const grupo = oyentesDano.get(id) ?? new Set();
+  grupo.add(alCambiar);
+  oyentesDano.set(id, grupo);
+  return () => {
+    grupo.delete(alCambiar);
+  };
+}
+
+/**
+ * Aplica un cambio parcial al registro leyendo su estado actual dentro de una misma transacción.
+ * Así varias fuentes (el formulario, la medición, el GPS y la descarga del mapa, que terminan en
+ * momentos distintos) no se pisan entre sí. Devuelve el registro resultante, o undefined si ya
+ * no existe.
+ */
+export async function modificarDano(id: string, cambio: Partial<Dano> | ((actual: Dano) => Partial<Dano>)): Promise<Dano | undefined> {
+  const tx = (await bd()).transaction('danos', 'readwrite');
+  const actual = (await tx.store.get(id)) as Dano | undefined;
+  if (!actual) {
+    await tx.done;
+    return undefined;
+  }
+  let n: Dano = { ...actual, ...(typeof cambio === 'function' ? cambio(actual) : cambio), id };
+  if (n.descripcionAuto) n = { ...n, descripcion: descripcionAutomatica(n) };
+  await tx.store.put(n);
+  await tx.done;
+  avisarCambio(n);
+  return n;
 }
 export async function eliminarDano(id: string): Promise<void> {
   const db = await bd();

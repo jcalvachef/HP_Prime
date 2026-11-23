@@ -4,8 +4,8 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { guardarDano, obtenerBlob, obtenerDano } from '../data/db';
-import { descripcionAutomatica, fmtFijo, parseNum } from '../domain/formato';
+import { modificarDano, obtenerBlob, obtenerDano } from '../data/db';
+import { fmtFijo, parseNum } from '../domain/formato';
 import { detectarReglaNaranja, longitudPolilinea, pxPorMetro, resumenMedicion } from '../domain/regla';
 import type { ClaseTrazo, Dano, Medicion, Pt } from '../domain/types';
 import { COLOR_TRAZO } from '../services/fotoAnotada';
@@ -218,11 +218,11 @@ export function Medir() {
     if (!d) return;
     const limpio: Medicion = { ...m, trazos: m.trazos.filter((t) => t.puntos.length >= 2) };
     const r = resumenMedicion(limpio);
-    let n: Dano = { ...d, medicion: limpio.regla || limpio.trazos.length ? limpio : null };
-    if (r.largo != null) n.largo = redondear(r.largo);
-    if (r.ancho != null) n.ancho = redondear(r.ancho);
-    if (n.descripcionAuto) n = { ...n, descripcion: descripcionAutomatica(n) };
-    await guardarDano(n);
+    // Cambio parcial: no toca la posición ni el mapa, que pueden estar llegando en este momento
+    const cambios: Partial<Dano> = { medicion: limpio.regla || limpio.trazos.length ? limpio : null };
+    if (r.largo != null) cambios.largo = redondear(r.largo);
+    if (r.ancho != null) cambios.ancho = redondear(r.ancho);
+    await modificarDano(d.id, cambios);
     if (limpio.trazos.length && !limpio.regla) avisar('Faltan los extremos de la regla: sin escala no se calculan las dimensiones.');
     nav(-1);
   };

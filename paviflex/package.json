@@ -1,7 +1,7 @@
 {
   "name": "paviflex",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Inspección visual de pavimentos flexibles (metodología INVIAS) para Android",
   "type": "module",
   "scripts": {

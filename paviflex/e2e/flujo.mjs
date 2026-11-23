@@ -1,6 +1,6 @@
 /**
  * Prueba de extremo a extremo en Chromium con vista de teléfono:
- * proyecto → sector → daños con foto (regla naranja sintética), GPS simulado y mapa interceptado →
+ * proyecto → sector → daños con foto (regla naranja sintética), GPS simulado y teselas simuladas →
  * análisis → informe PDF y Word. Uso: node e2e/flujo.mjs [carpeta-salida]
  */
 import { createRequire } from 'node:module';
@@ -13,7 +13,10 @@ const BASE = process.env.BASE_URL ?? 'http://localhost:4173';
 const SALIDA = process.argv[2] ?? 'e2e/salida';
 mkdirSync(SALIDA, { recursive: true });
 
-const navegador = await chromium.launch();
+// Con MAPAS_REALES=1 no se simulan las teselas: se descargan del proveedor (requiere Internet)
+const REAL = process.env.MAPAS_REALES === '1';
+const proxy = process.env.HTTPS_PROXY ? { server: process.env.HTTPS_PROXY, bypass: 'localhost,127.0.0.1' } : undefined;
+const navegador = await chromium.launch(REAL && proxy ? { proxy } : {});
 const ctx = await navegador.newContext({
   viewport: { width: 412, height: 915 },
   deviceScaleFactor: 1,
@@ -28,7 +31,8 @@ const ctx = await navegador.newContext({
 const page = await ctx.newPage();
 const errores = [];
 page.on('pageerror', (e) => errores.push('pageerror: ' + e.message));
-page.on('console', (m) => { if (m.type() === 'error') errores.push('console: ' + m.text()); });
+// Las teselas respondidas con 404 a propósito generan un aviso del navegador que no es un error de la app
+page.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource.*404/.test(m.text())) errores.push('console: ' + m.text()); });
 page.on('dialog', (d) => d.accept());
 
 // Imágenes sintéticas generadas en el navegador
@@ -73,30 +77,76 @@ const fotos = {
   bch: await lienzoABytes(DIBUJO_FOTO(37, 'bch'), 1600, 1200),
 };
 for (const [k, v] of Object.entries(fotos)) writeFileSync(join(SALIDA, `foto-${k}.jpg`), v);
-const mapaFalso = await lienzoABytes(`
-  ctx.fillStyle = '#3d5a35'; ctx.fillRect(0, 0, w, h);
-  let s = 5; const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
-  for (let i = 0; i < 500; i++) { ctx.fillStyle = 'rgba(' + (40 + rnd() * 60) + ',' + (80 + rnd() * 70) + ',' + (40 + rnd() * 40) + ',0.7)'; ctx.beginPath(); ctx.arc(rnd() * w, rnd() * h, 10 + rnd() * 40, 0, 7); ctx.fill(); }
-  ctx.strokeStyle = '#8d8f92'; ctx.lineWidth = 46; ctx.beginPath(); ctx.moveTo(-20, h * 0.72); ctx.bezierCurveTo(w * 0.3, h * 0.6, w * 0.6, h * 0.5, w + 20, h * 0.3); ctx.stroke();
-  ctx.strokeStyle = '#f2d24a'; ctx.lineWidth = 3; ctx.setLineDash([24, 18]); ctx.stroke();
-  ctx.fillStyle = '#fff'; ctx.font = '600 22px sans-serif'; ctx.fillText('Google (imagen de prueba)', 14, h - 16);
-`, 1200, 900);
-let peticionesMapa = 0;
-await ctx.route('https://maps.googleapis.com/**', (ruta) => {
+// Teselas de prueba: tablero con la clave z/x/y de cada una, para comprobar que el mosaico calza.
+// Algunas se responden como inexistentes (404) y otras como "sin datos" (gris uniforme), para
+// ejercitar el respaldo con la tesela del nivel anterior.
+const pintor = await ctx.newPage();
+await pintor.goto(BASE);
+const tesela = async (z, x, y, sinDatos) => {
+  const b64 = await pintor.evaluate(([z, x, y, sinDatos]) => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 256;
+    const g = c.getContext('2d');
+    if (sinDatos) { g.fillStyle = '#cccccc'; g.fillRect(0, 0, 256, 256); return c.toDataURL('image/jpeg', 0.9).split(',')[1]; }
+    g.fillStyle = (x + y) % 2 ? '#4f6f45' : '#5d7f52'; g.fillRect(0, 0, 256, 256);
+    let s = x * 7919 + y * 104729 + z; const rnd = () => (s = (s * 16807 + 11) % 2147483647) / 2147483647;
+    for (let i = 0; i < 40; i++) { g.fillStyle = 'rgba(' + (30 + rnd() * 60) + ',' + (70 + rnd() * 80) + ',' + (30 + rnd() * 50) + ',0.6)'; g.beginPath(); g.arc(rnd() * 256, rnd() * 256, 6 + rnd() * 22, 0, 7); g.fill(); }
+    g.strokeStyle = 'rgba(255,255,255,0.7)'; g.lineWidth = 2; g.strokeRect(1, 1, 254, 254);
+    g.fillStyle = '#fff'; g.font = '600 20px sans-serif'; g.fillText(z + '/' + x + '/' + y, 12, 30);
+    return c.toDataURL('image/jpeg', 0.9).split(',')[1];
+  }, [z, x, y, sinDatos]);
+  return Buffer.from(b64, 'base64');
+};
+const capaVias = Buffer.from(await pintor.evaluate(() => {
+  const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d');
+  g.strokeStyle = '#ffd24a'; g.lineWidth = 9; g.beginPath(); g.moveTo(0, 200); g.lineTo(256, 60); g.stroke();
+  return c.toDataURL('image/png').split(',')[1];
+}), 'base64');
+let peticionesMapa = 0, respaldos = 0, superpuestas = 0;
+if (!REAL) await ctx.route('https://server.arcgisonline.com/**', async (ruta) => {
   peticionesMapa++;
-  const u = new URL(ruta.request().url());
-  if (u.searchParams.get('key') !== 'AIzaPRUEBA') return ruta.fulfill({ status: 403, body: 'The provided API key is invalid.' });
-  return ruta.fulfill({ status: 200, contentType: 'image/jpeg', body: mapaFalso, headers: { 'access-control-allow-origin': '*' } });
+  // Demora como la de una red de campo: el mapa termina de llegar cuando el usuario ya pasó a medir
+  await new Promise((ok) => setTimeout(ok, 150));
+  const ruta_ = new URL(ruta.request().url()).pathname;
+  const m = /\/tile\/(\d+)\/(\d+)\/(\d+)$/.exec(ruta_);
+  if (!m) return ruta.fulfill({ status: 400, body: 'mal' });
+  const [z, y, x] = m.slice(1).map(Number);
+  const cors = { 'access-control-allow-origin': '*' };
+  // Capa superpuesta de vías: PNG transparente con una vía diagonal
+  if (ruta_.includes('World_Transportation')) { superpuestas++; return ruta.fulfill({ status: 200, contentType: 'image/png', body: capaVias, headers: cors }); }
+  if (z >= 19 && (x + y) % 7 === 0) { respaldos++; return ruta.fulfill({ status: 404, body: 'Tile not found', headers: cors }); }
+  if (z >= 19 && (x + y) % 7 === 3) { respaldos++; return ruta.fulfill({ status: 200, contentType: 'image/jpeg', body: await tesela(z, x, y, true), headers: cors }); }
+  return ruta.fulfill({ status: 200, contentType: 'image/jpeg', body: await tesela(z, x, y, false), headers: cors });
 });
+// Ningún otro proveedor debe consultarse durante la prueba
+const otrosHosts = [];
+let teselasOsm = 0;
+if (!REAL) await ctx.route('https://tile.openstreetmap.org/**', async (ruta) => {
+  teselasOsm++;
+  const [z, x, y] = new URL(ruta.request().url()).pathname.replace('.png', '').split('/').slice(1).map(Number);
+  return ruta.fulfill({ status: 200, contentType: 'image/jpeg', body: await tesela(z, x, y, false), headers: { 'access-control-allow-origin': '*' } });
+});
+for (const h of ['https://maps.googleapis.com/**', 'https://tile.opentopomap.org/**', 'https://basemaps.cartocdn.com/**'])
+  if (!REAL) await ctx.route(h, (ruta) => { otrosHosts.push(ruta.request().url()); return ruta.abort(); });
 
 const captura = (nombre) => page.screenshot({ path: join(SALIDA, nombre + '.png') });
 const llenar = (id, v) => page.getByTestId(id).fill(v);
 
-// ── Ajustes: clave de Google Maps ──
+// ── Ajustes: mapa base sin clave ──
 await page.getByLabel('Ajustes').click();
-await llenar('a-clave', 'AIzaPRUEBA');
-await page.getByRole('button', { name: 'Probar la clave' }).click();
-await page.getByText('La clave funciona').waitFor();
+const proveedor = page.getByTestId('a-proveedor');
+if ((await proveedor.inputValue()) !== 'esri-hibrido') throw new Error('El proveedor por defecto debe ser el satélite con vías, sin clave');
+// Google queda como opción, pero exige clave; un servicio propio exige una plantilla válida
+await proveedor.selectOption('google');
+await page.getByText('Google Maps requiere una clave de API').waitFor();
+await proveedor.selectOption('xyz');
+await llenar('a-plantilla', 'https://mapas.ejemplo.co/{z}/{x}.png');
+await page.getByText('A la plantilla le falta {y}').waitFor();
+await proveedor.selectOption('esri-hibrido');
+await page.getByTestId('probar-mapa').click();
+await page.getByText('Mapa base descargado correctamente').waitFor({ timeout: REAL ? 120000 : 30000 });
+await page.getByTestId('prueba-mapa').scrollIntoViewIfNeeded();
+await captura('00-ajustes-mapa');
 await page.getByLabel('Volver').click();
 
 // ── Proyecto ──
@@ -188,7 +238,12 @@ for (const d of danos) {
   if (d.aclar) await llenar('d-aclar', d.aclar);
   await page.getByTestId('coords').waitFor({ timeout: 20000 });
   await page.getByTestId('plano').waitFor();
-  await page.getByText('Actualizar fondo Google Maps').waitFor({ timeout: 10000 });
+  await page.getByText('Actualizar mapa base').waitFor({ timeout: REAL ? 40000 : 15000 }).catch(async (e) => {
+    // Diagnóstico: qué dice la pantalla cuando el mapa no llega
+    console.log('avisos en pantalla:', await page.locator('.aviso').allInnerTexts());
+    await captura('error-mapa');
+    throw e;
+  });
   if (n === 1) {
     await page.waitForTimeout(400);
     await captura('04-dano-arriba');
@@ -225,13 +280,30 @@ for (const fmt of ['pdf', 'docx']) {
 }
 await captura('13-informe-generado');
 
+if (!REAL) {
+// ── Cambio de proveedor: los planos ya descargados se pueden actualizar al nuevo ──
+await page.getByLabel('Volver').click();
+await page.getByLabel('Volver').click();
+await page.getByLabel('Ajustes').click();
+await page.getByTestId('a-proveedor').selectOption('osm');
+await page.getByLabel('Volver').click();
+await page.getByText('Inspección visual vía Mocoa – San Francisco').first().click();
+await page.getByTestId('ir-informe').click();
+await page.getByText('10 planos se descargaron con otro mapa base').waitFor();
+await captura('14-informe-otro-proveedor');
+await page.getByTestId('mapas-actualizar').click();
+await page.getByText('10 mapas descargados').waitFor({ timeout: 60000 });
+await page.getByTestId('mapas-actualizar').waitFor({ state: 'detached' });
+if (teselasOsm < 60) throw new Error('No se pidieron las teselas de OpenStreetMap esperadas: ' + teselasOsm);
+}
+
 writeFileSync(
   join(SALIDA, 'resultado.json'),
-  JSON.stringify({ errores, peticionesMapa, danos: danos.map(({ tipo, lectura, largoMedido, anchoMedido, coords }) => ({ tipo, lectura, largoMedido, anchoMedido, coords })) }, null, 1),
+  JSON.stringify({ errores, peticionesMapa, respaldos, otrosHosts, danos: danos.map(({ tipo, lectura, largoMedido, anchoMedido, coords }) => ({ tipo, lectura, largoMedido, anchoMedido, coords })) }, null, 1),
 );
 console.log('errores:', errores.length ? errores : 'ninguno');
-console.log('peticiones de mapa:', peticionesMapa);
+console.log('teselas pedidas:', peticionesMapa, '· con respaldo:', respaldos, '· de la capa de vías:', superpuestas, '· de OpenStreetMap:', teselasOsm, '· otros proveedores consultados:', otrosHosts.length);
 console.log(JSON.stringify(danos[0], null, 1));
 console.log('largo FL medido:', danos[1].largoMedido);
 await navegador.close();
-process.exit(errores.length ? 1 : 0);
+process.exit(errores.length || otrosHosts.length ? 1 : 0);
