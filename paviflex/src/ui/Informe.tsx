@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { guardarBlob, guardarDano, leerAjustes, listarDanos, listarSectores, nuevoId, obtenerProyecto } from '../data/db';
+import { eliminarBlob, guardarBlob, leerAjustes, modificarDano, listarDanos, listarSectores, nuevoId, obtenerProyecto } from '../data/db';
+import type { Dano } from '../domain/types';
 import { construirInforme } from '../report/construir';
 import type { Informe } from '../report/modelo';
-import { descargarMapa } from '../services/mapa';
+import { descargarMapa, impedimentoMapa, nombreProveedor } from '../services/mapa';
 import { entregarArchivo, esNativo } from '../services/plataforma';
 import { Icono, Pantalla, useAviso, useCarga } from './comunes';
 
@@ -26,19 +27,22 @@ export function PantallaInforme() {
   const sinGps = todos.filter((d) => !d.gps).length;
   const sinMapa = todos.filter((d) => d.gps && !d.mapa);
   const sinFoto = todos.filter((d) => !d.foto).length;
-  const hayClave = !!ajustes.claveGoogleMaps.trim();
+  // Mapas descargados con un proveedor distinto al elegido ahora en Ajustes
+  const deOtroProveedor = todos.filter((d) => d.gps && d.mapa && d.mapa.proveedor !== ajustes.proveedorMapa);
+  const impedimento = impedimentoMapa(ajustes);
   const ocupado = estado != null;
 
-  const mapasPendientes = async () => {
+  const descargarMapas = async (lista: Dano[]) => {
     setError(null);
     let hechos = 0;
     try {
-      for (const d of sinMapa) {
-        setEstado({ msg: `Descargando mapa de la foto ${d.numero}`, fr: hechos / sinMapa.length });
+      for (const d of lista) {
+        setEstado({ msg: `Descargando mapa de la foto ${d.numero}`, fr: hechos / lista.length });
         const r = await descargarMapa(d.gps!.lat, d.gps!.lon, ajustes);
         const blobId = nuevoId();
         await guardarBlob(blobId, r.blob);
-        await guardarDano({ ...d, mapa: { blobId, ...r.meta } });
+        await modificarDano(d.id, { mapa: { blobId, ...r.meta } });
+        if (d.mapa) await eliminarBlob(d.mapa.blobId);
         hechos++;
       }
       avisar(`${hechos} mapas descargados.`);
@@ -90,7 +94,7 @@ export function PantallaInforme() {
         <div className="cifras" style={{ marginTop: 12, marginBottom: 0 }}>
           <div className="cifra"><div className="v">{sectores.length}</div><div className="k">sectores</div></div>
           <div className="cifra"><div className="v">{todos.length}</div><div className="k">registros de daño</div></div>
-          <div className="cifra"><div className="v">{todos.length - sinMapa.length - sinGps}</div><div className="k">con fondo Google Maps</div></div>
+          <div className="cifra"><div className="v">{todos.length - sinMapa.length - sinGps}</div><div className="k">con mapa base</div></div>
         </div>
       </div>
 
@@ -103,12 +107,21 @@ export function PantallaInforme() {
       ) : null}
       {sinMapa.length ? (
         <div className="aviso info">
-          {sinMapa.length} registros tienen coordenadas pero no fondo Google Maps; en el informe llevarán un croquis con cuadrícula.
-          {hayClave ? (
-            <button className="btn chico bloque" style={{ marginTop: 8 }} disabled={ocupado} onClick={mapasPendientes}>{Icono.mapa} Descargar los mapas pendientes</button>
+          {sinMapa.length} registros tienen coordenadas pero no mapa base; en el informe llevarán un croquis con cuadrícula.
+          {!impedimento ? (
+            <button className="btn chico bloque" style={{ marginTop: 8 }} data-testid="mapas-pendientes" disabled={ocupado} onClick={() => descargarMapas(sinMapa)}>{Icono.mapa} Descargar los mapas pendientes ({nombreProveedor(ajustes)})</button>
           ) : (
-            <div style={{ marginTop: 4 }}>Configure la clave de API de Google Maps en Ajustes para descargarlos.</div>
+            <div style={{ marginTop: 4 }}>{impedimento}</div>
           )}
+        </div>
+      ) : null}
+
+      {deOtroProveedor.length && !impedimento ? (
+        <div className="aviso info">
+          {deOtroProveedor.length} planos se descargaron con otro mapa base. Puede dejarlos así o actualizarlos al proveedor elegido en Ajustes.
+          <button className="btn chico bloque" style={{ marginTop: 8 }} data-testid="mapas-actualizar" disabled={ocupado} onClick={() => descargarMapas(deOtroProveedor)}>
+            {Icono.mapa} Actualizar a {nombreProveedor(ajustes)}
+          </button>
         </div>
       ) : null}
 

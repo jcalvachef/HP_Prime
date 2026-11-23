@@ -84,6 +84,8 @@ export interface MapaDano {
   escala: number;
   lat: number;
   lon: number;
+  /** Identificador del proveedor del mapa base con que se descargó */
+  proveedor?: string;
 }
 
 export interface Dano {
@@ -114,6 +116,12 @@ export interface Dano {
 }
 
 export interface Ajustes {
+  /** Proveedor del mapa base: uno de los de teselas sin clave, 'xyz' (propio), 'google' o 'ninguno' */
+  proveedorMapa: string;
+  /** Plantilla y atribución del servicio de teselas propio */
+  plantillaXYZ: string;
+  atribucionXYZ: string;
+  /** Solo para el proveedor opcional Google Maps (Maps Static API) */
   claveGoogleMaps: string;
   tipoMapa: TipoMapa;
   zoomMapa: number;
@@ -126,9 +134,12 @@ export interface Ajustes {
 }
 
 export const AJUSTES_POR_DEFECTO: Ajustes = {
+  proveedorMapa: 'esri-hibrido',
+  plantillaXYZ: '',
+  atribucionXYZ: '',
   claveGoogleMaps: '',
   tipoMapa: 'hybrid',
-  zoomMapa: 19,
+  zoomMapa: 18,
   consultorNombre: 'Jhimmy Calvache-Fajardo',
   consultorTitulos:
     'Ingeniero Civil | Ingeniero Agrícola\nEspecialista en Hidroinformática\nEspecialista en Estructuras\nEspecialista en Sistemas de Información Geográfica',

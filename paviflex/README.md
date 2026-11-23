@@ -17,9 +17,9 @@ Interadministrativo 0587-03, Universidad Nacional de Colombia – INVIAS, octubr
 - **Coordenadas EPSG:9377.** La posición GNSS se transforma a MAGNA-SIRGAS / Origen-Nacional
   (Transversa de Mercator, 4° N, 73° W, k = 0,9992, FE 5 000 000, FN 2 000 000). La transformación
   está verificada contra PROJ en las pruebas.
-- **Vista en planta con fondo Google Maps.** Para cada daño se descarga el mapa (Maps Static API) y
-  se le agregan marcador numerado, barra de escala y norte. Sin conexión o sin clave se dibuja un
-  croquis con cuadrícula EPSG:9377, y el fondo se puede descargar después.
+- **Vista en planta sobre un mapa base, sin clave de API.** Para cada daño se arma el plano con
+  teselas del proveedor elegido y se le agregan marcador numerado, barra de escala y norte. Sin
+  conexión se dibuja un croquis con cuadrícula EPSG:9377, y el mapa se puede descargar después.
 - **Análisis del capítulo 3 del manual.** Tramos de 100 m en abscisas cerradas, áreas por tipo y
   severidad, porcentajes de afectación; daños en carriles, superficiales y en bermas por separado;
   fisuras lineales con ancho de referencia de 0,6 m.
@@ -31,7 +31,7 @@ Interadministrativo 0587-03, Universidad Nacional de Colombia – INVIAS, octubr
   dispositivo.
 
 Los datos se guardan en el dispositivo y la aplicación funciona sin conexión; Internet solo se usa
-para descargar el fondo de Google Maps.
+para descargar el mapa base.
 
 ## Instalar en el teléfono
 
@@ -45,17 +45,30 @@ que una versión nueva se instala sobre la anterior y conserva los proyectos. Au
 respaldo `.zip` de sus proyectos antes de actualizar o desinstalar: los datos viven dentro de la
 aplicación y se borran al desinstalarla.
 
-## Clave de Google Maps
+## Mapa base
 
-El fondo Google Maps necesita una clave propia:
+El plano de cada daño no necesita ninguna clave. En **Ajustes → Mapa base del plano** se elige el
+proveedor y el zoom de la vista, y *Probar el mapa base* descarga una vista de ejemplo:
 
-1. En [Google Cloud Console](https://console.cloud.google.com/) cree un proyecto, active la
-   facturación y habilite **Maps Static API**.
-2. Cree una clave de API (se recomienda restringirla a *Maps Static API*).
-3. En la aplicación: **Ajustes → Google Maps → Clave de API**, y use *Probar la clave*.
+| Proveedor | Qué muestra | Detalle |
+|---|---|---|
+| Satélite con vías (Esri) — por defecto | Imagen satelital con vías y nombres | Según la zona: en la prueba, zoom 19 en Bogotá y 18 en Mocoa |
+| Imagen satelital (Esri World Imagery) | Imagen satelital sin rótulos | Igual que el anterior |
+| Callejero (OpenStreetMap) | Vías, nombres y referencias | Hasta zoom 19 |
+| Topográfico (OpenTopoMap) | Curvas de nivel y relieve | Hasta zoom 17 |
+| Servicio de teselas propio (XYZ) | Lo que publique el servicio | Plantilla `https://…/{z}/{x}/{y}.png` |
+| Google Maps (opcional) | Híbrido, satélite o vías | Requiere clave propia de *Maps Static API* |
+| Sin mapa base | Croquis con cuadrícula EPSG:9377 | No usa Internet |
 
-La clave queda guardada solo en el dispositivo. Cada daño consume una solicitud de mapa, y el plano
-general de cada sector una más por informe.
+Donde el proveedor no tiene imagen al nivel pedido (por ejemplo Esri a zoom 19 en Mocoa), la
+aplicación usa el nivel anterior ampliado. Cada mapa lleva impresa la
+atribución de su proveedor. Los servidores de OpenStreetMap y OpenTopoMap son comunitarios y están
+pensados para un uso moderado: la aplicación pide una docena de teselas por daño, pero no conviene
+usarlos para descargas masivas. Google no permite usar sus mapas sin clave; por eso queda como
+opción y no viene activado.
+
+Al cambiar de proveedor, los planos ya descargados se conservan; en la pantalla del informe se
+pueden actualizar todos al proveedor nuevo.
 
 ## Uso en campo
 

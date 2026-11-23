@@ -4,13 +4,14 @@ import {
   eliminarBlob,
   eliminarDano,
   guardarBlob,
-  guardarDano,
   leerAjustes,
   listarDanos,
+  modificarDano,
   nuevoId,
   obtenerBlob,
   obtenerDano,
   obtenerSector,
+  suscribirDano,
 } from '../data/db';
 import {
   CARRILES_BASE,
@@ -28,8 +29,9 @@ import { pxPorMetro } from '../domain/regla';
 import type { Dano, Sector } from '../domain/types';
 import { fotoParaInforme } from '../services/fotoAnotada';
 import { normalizarFoto } from '../services/imagen';
-import { componerPlano, descargarMapa, MAPA_ESCALA, MAPA_H, MAPA_W, type Marcador } from '../services/mapa';
-import { elegirDeGaleria, esNativo, obtenerPosicion, tomarFoto } from '../services/plataforma';
+import { componerPlano, MAPA_ESCALA, MAPA_H, MAPA_W, type Marcador } from '../services/mapa';
+import { elegirDeGaleria, esNativo, tomarFoto } from '../services/plataforma';
+import { capturarPosicionDano, descargarFondoDano, useTareasDano } from '../services/tareasDano';
 import { COLOR_SEV } from './colores';
 import { Campo, EntradaValor, Hoja, Icono, Pantalla, Texto, useAviso } from './comunes';
 
@@ -70,60 +72,48 @@ export function EditorDano() {
   const [d, setD] = useState<Dano | null>(null);
   const [sector, setSector] = useState<Sector | null>(null);
   const [eligiendoTipo, setEligiendoTipo] = useState(false);
-  const [gpsEstado, setGpsEstado] = useState<{ fase: 'reposo' | 'buscando' | 'error'; msg?: string }>({ fase: 'reposo' });
-  const [mapaEstado, setMapaEstado] = useState<{ fase: 'reposo' | 'descargando' | 'error'; msg?: string }>({ fase: 'reposo' });
   const [urlFoto, setUrlFoto] = useState<string | null>(null);
   const [urlPlano, setUrlPlano] = useState<string | null>(null);
   const [ocupadoFoto, setOcupadoFoto] = useState(false);
+  const { gps: gpsEstado, mapa: mapaEstado } = useTareasDano(id);
   const ref = useRef<Dano | null>(null);
+  const pendientes = useRef(0);
   const iniciado = useRef(false);
-
-  /** Aplica cambios, recalcula la descripción automática y guarda de inmediato. */
-  const actualizar = useCallback((cambios: Partial<Dano>) => {
-    if (!ref.current) return;
-    let n: Dano = { ...ref.current, ...cambios };
-    if (n.descripcionAuto) n = { ...n, descripcion: descripcionAutomatica(n) };
+  const fijar = useCallback((n: Dano | null) => {
     ref.current = n;
     setD(n);
-    void guardarDano(n);
   }, []);
 
-  const descargarFondo = useCallback(
-    async (lat: number, lon: number, silencioso: boolean) => {
-      const aj = await leerAjustes();
-      if (!aj.claveGoogleMaps.trim()) {
-        if (!silencioso) setMapaEstado({ fase: 'error', msg: 'Configure la clave de API de Google Maps en Ajustes para obtener el fondo.' });
-        return;
-      }
-      setMapaEstado({ fase: 'descargando' });
-      try {
-        const r = await descargarMapa(lat, lon, aj);
-        const anterior = ref.current?.mapa?.blobId;
-        const blobId = nuevoId();
-        await guardarBlob(blobId, r.blob);
-        actualizar({ mapa: { blobId, ...r.meta } });
-        if (anterior) void eliminarBlob(anterior);
-        setMapaEstado({ fase: 'reposo' });
-      } catch (e) {
-        setMapaEstado({ fase: 'error', msg: String((e as Error).message ?? e) });
-      }
+  /**
+   * Aplica cambios del formulario: se reflejan de inmediato en pantalla y se guardan como cambio
+   * parcial, de modo que no pisan lo que guarden la medición, el GPS o la descarga del mapa.
+   */
+  const actualizar = useCallback(
+    (cambios: Partial<Dano>) => {
+      if (!ref.current) return;
+      let n: Dano = { ...ref.current, ...cambios };
+      if (n.descripcionAuto) n = { ...n, descripcion: descripcionAutomatica(n) };
+      fijar(n);
+      pendientes.current++;
+      void modificarDano(id, cambios).finally(async () => {
+        if (--pendientes.current > 0) return;
+        const guardado = await obtenerDano(id);
+        if (guardado && pendientes.current === 0 && ref.current) fijar(guardado);
+      });
     },
-    [actualizar],
+    [id, fijar],
   );
 
-  const capturarGps = useCallback(async () => {
-    setGpsEstado({ fase: 'buscando' });
-    try {
-      const pos = await obtenerPosicion({ alProgreso: (p) => setGpsEstado({ fase: 'buscando', msg: p.precision != null ? `± ${fmtFijo(p.precision, 1)} m` : undefined }) });
-      const anterior = ref.current?.mapa?.blobId;
-      actualizar({ gps: pos, mapa: null });
-      if (anterior) void eliminarBlob(anterior);
-      setGpsEstado({ fase: 'reposo' });
-      void descargarFondo(pos.lat, pos.lon, true);
-    } catch (e) {
-      setGpsEstado({ fase: 'error', msg: String((e as Error).message ?? e) });
-    }
-  }, [actualizar, descargarFondo]);
+  // Cambios hechos fuera del formulario (posición, mapa base, medición)
+  useEffect(
+    () =>
+      suscribirDano(id, (n) => {
+        if (pendientes.current === 0 && ref.current) fijar(n);
+      }),
+    [id, fijar],
+  );
+
+  const capturarGps = useCallback(() => void capturarPosicionDano(id), [id]);
 
   const ponerFoto = useCallback(
     async (origen: () => Promise<Blob | null>) => {
@@ -156,8 +146,7 @@ export function EditorDano() {
     void (async () => {
       const x = await obtenerDano(id);
       if (!vivo || !x) return;
-      ref.current = x;
-      setD(x);
+      fijar(x);
       setSector((await obtenerSector(x.sectorId)) ?? null);
       if (params.get('nuevo') === '1' && !iniciado.current) {
         iniciado.current = true;
@@ -167,8 +156,8 @@ export function EditorDano() {
           // aplicación queda en segundo plano y Android limita las lecturas de ubicación; además
           // así el diálogo de permiso de ubicación no compite con la cámara.
           await ponerFoto(tomarFoto);
-          if (vivo && !ref.current?.gps) void capturarGps();
-        } else if (!x.gps) void capturarGps();
+          if (!ref.current?.gps) void capturarPosicionDano(id);
+        } else if (!x.gps) void capturarPosicionDano(id);
       }
     })();
     return () => {
@@ -197,7 +186,7 @@ export function EditorDano() {
     };
   }, [claveFoto]);
 
-  // Vista en planta: fondo Google (si existe) o croquis, con los demás daños del sector
+  // Vista en planta: mapa base (si existe) o croquis, con los demás daños del sector
   const clavePlano = d?.gps ? `${d.gps.lat}|${d.gps.lon}|${d.mapa?.blobId ?? ''}|${d.severidad}|${d.tipo}` : '';
   useEffect(() => {
     let vivo = true;
@@ -409,9 +398,9 @@ export function EditorDano() {
         {d.gps ? (
           <>
             {mapaEstado.fase === 'error' ? <div className="aviso" style={{ marginTop: 10 }}>{mapaEstado.msg}</div> : null}
-            {!d.mapa && mapaEstado.fase === 'reposo' ? <p className="meta" style={{ marginTop: 8 }}>Croquis sin fondo. El fondo Google Maps se descarga cuando hay conexión y clave de API.</p> : null}
-            <button className="btn bloque chico" data-testid="mapa" style={{ marginTop: 10 }} disabled={mapaEstado.fase === 'descargando'} onClick={() => descargarFondo(d.gps!.lat, d.gps!.lon, false)}>
-              {Icono.mapa} {mapaEstado.fase === 'descargando' ? 'Descargando mapa…' : d.mapa ? 'Actualizar fondo Google Maps' : 'Descargar fondo Google Maps'}
+            {!d.mapa && mapaEstado.fase === 'reposo' ? <p className="meta" style={{ marginTop: 8 }}>Croquis sin mapa base. El mapa se descarga cuando hay conexión a Internet.</p> : null}
+            <button className="btn bloque chico" data-testid="mapa" style={{ marginTop: 10 }} disabled={mapaEstado.fase === 'descargando'} onClick={() => void descargarFondoDano(d.id, false)}>
+              {Icono.mapa} {mapaEstado.fase === 'descargando' ? 'Descargando mapa…' : d.mapa ? 'Actualizar mapa base' : 'Descargar mapa base'}
             </button>
           </>
         ) : null}

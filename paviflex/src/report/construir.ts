@@ -36,7 +36,7 @@ import {
 import { aEpsg9377, fmtCoord } from '../domain/geo';
 import { obtenerBlob } from '../data/db';
 import { fotoParaInforme } from '../services/fotoAnotada';
-import { componerPlano, descargarMapa, encuadre, MAPA_ESCALA, MAPA_H, MAPA_W, type Marcador } from '../services/mapa';
+import { componerPlano, descargarMapa, encuadre, impedimentoMapa, MAPA_ESCALA, MAPA_H, MAPA_W, nombreProveedor, type Marcador } from '../services/mapa';
 import { COLOR_SEV } from '../ui/colores';
 import { graficaSeveridades, graficaTramos } from './graficas';
 import {
@@ -57,7 +57,7 @@ export interface DatosInforme {
 
 export interface OpcionesInforme {
   alProgreso?: (mensaje: string, fraccion: number) => void;
-  /** Intentar descargar de Google Maps el plano general de cada sector */
+  /** Intentar descargar el mapa base del plano general de cada sector */
   planosGenerales?: boolean;
 }
 
@@ -509,7 +509,7 @@ export async function construirInforme(datos: DatosInforme, op: OpcionesInforme 
       'Cada daño se registró con fotografía tomada desde la aplicación, tipo de daño, severidad (baja, media o alta), carril, abscisa y dimensiones características (largo y ancho, o longitud).',
       'Las dimensiones se escalaron sobre la fotografía tomando como referencia una regla de color naranja de 1,00 m de longitud colocada junto al daño, en el plano del pavimento.',
       'La posición de cada daño se capturó con el receptor GNSS del dispositivo y se expresa en el sistema MAGNA-SIRGAS / Origen-Nacional (EPSG:9377): proyección Transversa de Mercator, origen 4° N y 73° W, factor de escala 0,9992, falso este 5 000 000 m y falso norte 2 000 000 m. La precisión reportada es la estimada por el receptor.',
-      'La vista en planta de cada registro se presenta sobre fondo de Google Maps cuando se dispone de conexión; en caso contrario se presenta un croquis con cuadrícula de coordenadas.',
+      `La vista en planta de cada registro se presenta sobre un mapa base (${nombreProveedor(ajustes)}) cuando se dispone de conexión; en caso contrario se presenta un croquis con cuadrícula de coordenadas.`,
       'El análisis agrupa los daños por tipo, severidad y tramos de 100 m, separando los daños en carriles, los daños superficiales y los daños en bermas, y calcula los porcentajes de afectación respecto al área inspeccionada.',
     ],
   });
@@ -538,7 +538,7 @@ export async function construirInforme(datos: DatosInforme, op: OpcionesInforme 
       const marcadores = conGps.map((d) => marcadorDe(d, false)!).filter(Boolean);
       const vista = { ...encuadre(conGps.map((d) => ({ lat: d.gps!.lat, lon: d.gps!.lon }))), w: MAPA_W, h: MAPA_H, escala: MAPA_ESCALA };
       let fondo: Blob | null = null;
-      if (op.planosGenerales !== false && ajustes.claveGoogleMaps.trim()) {
+      if (op.planosGenerales !== false && !impedimentoMapa(ajustes)) {
         try {
           fondo = (await descargarMapa(vista.lat, vista.lon, ajustes, vista.zoom)).blob;
         } catch {
