@@ -112,7 +112,7 @@ export function PantallaAjustes() {
       <div className="tarjeta">
         <h3>Acerca de</h3>
         <p className="meta" style={{ lineHeight: 1.5 }}>
-          PaviFlex 1.1 · Metodología: Manual para la inspección visual de pavimentos flexibles (INVIAS – Universidad Nacional de Colombia, 2006).
+          PaviFlex 1.2 · Metodología: Manual para la inspección visual de pavimentos flexibles (INVIAS – Universidad Nacional de Colombia, 2006).
           Coordenadas en MAGNA-SIRGAS / Origen-Nacional (EPSG:9377). Los mapas base pertenecen a sus proveedores y se usan con su atribución. Los datos se almacenan en este dispositivo; use el respaldo .zip de cada proyecto para conservarlos.
         </p>
       </div>

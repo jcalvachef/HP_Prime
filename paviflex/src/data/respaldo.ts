@@ -78,6 +78,8 @@ export async function importarProyecto(archivo: Blob): Promise<string> {
       sectorId,
       proyectoId: idP,
       foto: d.foto && fotoId ? { ...d.foto, blobId: fotoId, miniId: miniId ?? fotoId } : null,
+      // El descriptor sigue siendo válido: corresponde a la misma fotografía, ahora con otro identificador
+      descriptorFoto: d.descriptor && fotoId && d.descriptorFoto === d.foto?.blobId ? fotoId : undefined,
       mapa: d.mapa && mapaId ? { ...d.mapa, blobId: mapaId } : null,
     });
   }

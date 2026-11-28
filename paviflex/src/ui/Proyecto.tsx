@@ -11,6 +11,7 @@ import {
 import { exportarProyecto } from '../data/respaldo';
 import { fmtFecha, fmtPR } from '../domain/formato';
 import type { Administracion, Proyecto } from '../domain/types';
+import { exportarPuntos } from '../services/exportarKml';
 import { entregarArchivo } from '../services/plataforma';
 import { Campo, Icono, Pantalla, Texto, useAviso, useCarga } from './comunes';
 
@@ -83,6 +84,7 @@ export function VistaProyecto() {
   const nav = useNavigate();
   const avisar = useAviso();
   const [ocupado, setOcupado] = useState(false);
+  const [exportando, setExportando] = useState<string | null>(null);
   const { datos } = useCarga(async () => {
     const p = await obtenerProyecto(id);
     const sectores = await listarSectores(id);
@@ -103,6 +105,16 @@ export function VistaProyecto() {
       avisar(String((e as Error).message ?? e));
     } finally {
       setOcupado(false);
+    }
+  };
+  const exportar = async (formato: 'kml' | 'kmz') => {
+    setExportando(formato === 'kmz' ? 'Preparando fotografías…' : 'Generando…');
+    try {
+      avisar(await exportarPuntos(formato, id, undefined, (h, t) => setExportando(`Fotografía ${h} de ${t}…`)));
+    } catch (e) {
+      avisar(String((e as Error).message ?? e));
+    } finally {
+      setExportando(null);
     }
   };
   const eliminar = async () => {
@@ -153,6 +165,18 @@ export function VistaProyecto() {
           <button className="btn" disabled={ocupado} onClick={respaldar}>{Icono.compartir} {ocupado ? 'Exportando…' : 'Respaldo .zip'}</button>
         </div>
         <span className="campo"><span className="ayuda">El respaldo incluye datos, fotografías y mapas; puede restaurarse en otro dispositivo desde la pantalla inicial.</span></span>
+      </div>
+      <div className="tarjeta">
+        <h3>Puntos de inspección (KML / KMZ)</h3>
+        <div className="acciones">
+          <button className="btn oscuro" data-testid="exportar-kmz" disabled={!!exportando} onClick={() => exportar('kmz')}>{Icono.mapa} KMZ con fotografías</button>
+          <button className="btn" data-testid="exportar-kml" disabled={!!exportando} onClick={() => exportar('kml')}>{Icono.mapa} KML</button>
+        </div>
+        <span className="campo">
+          <span className="ayuda">
+            {exportando ?? 'Al terminar el recorrido, exporte todos los daños con coordenadas como puntos con sus atributos, para Google Earth o un SIG. El KMZ agrega la fotografía de cada punto.'}
+          </span>
+        </span>
       </div>
       <button className="btn peligro bloque" onClick={eliminar}>{Icono.borrar} Eliminar proyecto</button>
     </Pantalla>

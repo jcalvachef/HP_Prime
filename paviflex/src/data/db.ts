@@ -125,6 +125,19 @@ export async function eliminarDano(id: string): Promise<void> {
   if (d?.mapa) await db.delete('blobs', d.mapa.blobId);
   await db.delete('danos', id);
 }
+/**
+ * Registros ya clasificados por el inspector (con tipo y descriptor de su fotografía), de todos los
+ * proyectos: son los ejemplos con que se afinan las sugerencias. Se excluye el registro en edición.
+ */
+export async function listarEjemplosPropios(exceptoId: string, maximo = 400): Promise<{ codigo: string; descriptor: number[] }[]> {
+  const todos = (await (await bd()).getAll('danos')) as Dano[];
+  return todos
+    .filter((d) => d.id !== exceptoId && d.tipo && d.descriptor?.length && d.foto && d.descriptorFoto === d.foto.blobId)
+    .sort((a, b) => b.fechaHora.localeCompare(a.fechaHora))
+    .slice(0, maximo)
+    .map((d) => ({ codigo: d.tipo, descriptor: d.descriptor! }));
+}
+
 export async function siguienteNumero(sectorId: string): Promise<number> {
   const ds = await listarDanos(sectorId);
   return ds.reduce((m, d) => Math.max(m, d.numero), 0) + 1;

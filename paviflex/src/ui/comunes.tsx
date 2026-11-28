@@ -204,7 +204,7 @@ export function ChipSeveridad(p: { sev: Severidad | null; sinGrado?: boolean }) 
   );
 }
 
-export function Hoja(p: { titulo: string; alCerrar: () => void; children: ReactNode }) {
+export function Hoja(p: { titulo: string; alCerrar: () => void; children: ReactNode; pie?: ReactNode }) {
   return (
     <div className="hoja-fondo" onClick={p.alCerrar}>
       <div className="hoja" role="dialog" aria-label={p.titulo} onClick={(e) => e.stopPropagation()}>
@@ -213,6 +213,7 @@ export function Hoja(p: { titulo: string; alCerrar: () => void; children: ReactN
           <button className="btn chico" onClick={p.alCerrar}>Cerrar</button>
         </header>
         <div className="cuerpo">{p.children}</div>
+        {p.pie ? <footer>{p.pie}</footer> : null}
       </div>
     </div>
   );

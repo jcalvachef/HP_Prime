@@ -197,9 +197,29 @@ for (const d of danos) {
   const [selector] = await Promise.all([page.waitForEvent('filechooser'), page.getByTestId('tomar-foto').click()]);
   await selector.setFiles({ name: `foto${n}.jpg`, mimeType: 'image/jpeg', buffer: fotos[d.foto] });
   await page.getByTestId('foto').waitFor();
-  await page.getByTestId('elegir-tipo').click();
-  if (n === 1) await captura('03-selector-tipo');
-  await page.getByTestId(`tipo-${d.tipo}`).click();
+  // Sugerencia automática: la más parecida y dos alternativas
+  await page.getByTestId('sugerencia-0').waitFor({ timeout: 20000 });
+  d.sugerencias = (await page.getByTestId('sugerencias').locator('.sugerencia .sigla').allInnerTexts()).join(', ');
+  if (n === 1) {
+    // El primer daño se clasifica desde la sugerencia, viendo la figura del manual y sus variantes
+    await page.getByTestId('sugerencias').scrollIntoViewIfNeeded();
+    await captura('03a-sugerencias');
+    await page.getByTestId('sugerencia-0').click();
+    const fig = page.getByTestId('figura-manual');
+    await fig.waitFor();
+    await page.waitForFunction(() => { const i = document.querySelector('[data-testid="figura-manual"]'); return i && i.complete && i.naturalWidth > 600; });
+    await captura('03b-figura-manual');
+    await page.getByTestId('variante-FB').click();
+    await page.getByText('Fisuras en bloque').first().waitFor();
+    await captura('03c-figura-variante');
+    await page.getByTestId(`variante-${d.tipo}`).click();
+    await page.getByTestId('elegir-figura').click();
+    await page.getByTestId('figura-manual').waitFor({ state: 'detached' });
+  } else {
+    await page.getByTestId('elegir-tipo').click();
+    if (n === 2) await captura('03-selector-tipo');
+    await page.getByTestId(`tipo-${d.tipo}`).click();
+  }
   if (d.sev) await page.getByTestId(`sev-${d.sev}`).click();
   if (d.berma) await page.getByText('El daño está en la berma').click();
   await llenar('d-abscisa', d.abscisa);
@@ -266,8 +286,17 @@ await page.waitForTimeout(500);
 await captura('10-sector-analisis');
 await page.screenshot({ path: join(SALIDA, '11-sector-analisis-completo.png'), fullPage: true });
 
-// ── Informe ──
+// ── Puntos de inspección en KML y KMZ ──
 await page.getByLabel('Volver').click();
+for (const fmt of ['kml', 'kmz']) {
+  const [descarga] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.getByTestId(`exportar-${fmt}`).click()]);
+  await descarga.saveAs(join(SALIDA, `puntos.${fmt}`));
+  await page.getByText('10 puntos exportados').waitFor();
+}
+await page.getByTestId('exportar-kmz').scrollIntoViewIfNeeded();
+await captura('11b-exportar-puntos');
+
+// ── Informe ──
 await page.getByTestId('ir-informe').click();
 await captura('12-informe');
 for (const fmt of ['pdf', 'docx']) {
@@ -299,11 +328,12 @@ if (teselasOsm < 60) throw new Error('No se pidieron las teselas de OpenStreetMa
 
 writeFileSync(
   join(SALIDA, 'resultado.json'),
-  JSON.stringify({ errores, peticionesMapa, respaldos, otrosHosts, danos: danos.map(({ tipo, lectura, largoMedido, anchoMedido, coords }) => ({ tipo, lectura, largoMedido, anchoMedido, coords })) }, null, 1),
+  JSON.stringify({ errores, peticionesMapa, respaldos, otrosHosts, danos: danos.map(({ tipo, foto, sugerencias, lectura, largoMedido, anchoMedido, coords }) => ({ tipo, foto, sugerencias, lectura, largoMedido, anchoMedido, coords })) }, null, 1),
 );
 console.log('errores:', errores.length ? errores : 'ninguno');
 console.log('teselas pedidas:', peticionesMapa, '· con respaldo:', respaldos, '· de la capa de vías:', superpuestas, '· de OpenStreetMap:', teselasOsm, '· otros proveedores consultados:', otrosHosts.length);
 console.log(JSON.stringify(danos[0], null, 1));
 console.log('largo FL medido:', danos[1].largoMedido);
+console.log('sugerencias:', danos.map((d) => `${d.foto}→${d.tipo}: [${d.sugerencias}]`).join(' | '));
 await navegador.close();
 process.exit(errores.length || otrosHosts.length ? 1 : 0);

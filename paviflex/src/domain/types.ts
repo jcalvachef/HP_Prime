@@ -113,6 +113,9 @@ export interface Dano {
   foto: { blobId: string; miniId: string; w: number; h: number } | null;
   medicion: Medicion | null;
   mapa: MapaDano | null;
+  /** Rasgos de la fotografía para sugerir el tipo de daño, y la fotografía de la que se calcularon */
+  descriptor?: number[];
+  descriptorFoto?: string;
 }
 
 export interface Ajustes {

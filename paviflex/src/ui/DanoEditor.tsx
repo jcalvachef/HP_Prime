@@ -31,7 +31,10 @@ import { fotoParaInforme } from '../services/fotoAnotada';
 import { normalizarFoto } from '../services/imagen';
 import { componerPlano, MAPA_ESCALA, MAPA_H, MAPA_W, type Marcador } from '../services/mapa';
 import { elegirDeGaleria, esNativo, tomarFoto } from '../services/plataforma';
+import { sugerenciasPara } from '../services/manual';
 import { capturarPosicionDano, descargarFondoDano, useTareasDano } from '../services/tareasDano';
+import type { Sugerencia } from '../domain/similitud';
+import { HojaFigura } from './FiguraManual';
 import { COLOR_SEV } from './colores';
 import { Campo, EntradaValor, Hoja, Icono, Pantalla, Texto, useAviso } from './comunes';
 
@@ -40,6 +43,7 @@ const optPR = (t: string) => (t.trim() === '' ? null : parsePR(t) ?? undefined);
 
 function SelectorTipo(p: { alElegir: (codigo: string) => void; alCerrar: () => void }) {
   const [q, setQ] = useState('');
+  const [viendo, setViendo] = useState<string | null>(null);
   const f = q.trim().toLowerCase();
   return (
     <Hoja titulo="Tipo de daño" alCerrar={p.alCerrar}>
@@ -51,15 +55,19 @@ function SelectorTipo(p: { alElegir: (codigo: string) => void; alCerrar: () => v
           <div key={c.id}>
             <div className="grupo">{c.nombre}</div>
             {tipos.map((t) => (
-              <button key={t.codigo} className="opcion" data-testid={`tipo-${t.codigo}`} onClick={() => p.alElegir(t.codigo)}>
-                <span className="sigla">{t.codigo}</span>
-                <span>{t.nombre}</span>
-                <span className="u">{etiquetaUnidad(t.unidad)}</span>
-              </button>
+              <div key={t.codigo} className="opcion-fila">
+                <button className="opcion" data-testid={`tipo-${t.codigo}`} onClick={() => p.alElegir(t.codigo)}>
+                  <span className="sigla">{t.codigo}</span>
+                  <span>{t.nombre}</span>
+                  <span className="u">{etiquetaUnidad(t.unidad)}</span>
+                </button>
+                <button className="btn chico" aria-label={`Ver la figura del manual de ${t.nombre}`} onClick={() => setViendo(t.codigo)}>Figura</button>
+              </div>
             ))}
           </div>
         );
       })}
+      {viendo ? <HojaFigura codigo={viendo} alElegir={p.alElegir} alCerrar={() => setViendo(null)} /> : null}
     </Hoja>
   );
 }
@@ -75,6 +83,8 @@ export function EditorDano() {
   const [urlFoto, setUrlFoto] = useState<string | null>(null);
   const [urlPlano, setUrlPlano] = useState<string | null>(null);
   const [ocupadoFoto, setOcupadoFoto] = useState(false);
+  const [sugerencias, setSugerencias] = useState<Sugerencia[] | null>(null);
+  const [figura, setFigura] = useState<Sugerencia | null>(null);
   const { gps: gpsEstado, mapa: mapaEstado } = useTareasDano(id);
   const ref = useRef<Dano | null>(null);
   const pendientes = useRef(0);
@@ -166,6 +176,20 @@ export function EditorDano() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  // Interpretación de la fotografía: tipo más probable y dos alternativas
+  const fotoId = d?.foto?.blobId ?? '';
+  useEffect(() => {
+    let vivo = true;
+    setSugerencias(null);
+    if (!fotoId || !ref.current) return;
+    void sugerenciasPara(ref.current)
+      .then((s) => vivo && setSugerencias(s))
+      .catch(() => vivo && setSugerencias([]));
+    return () => {
+      vivo = false;
+    };
+  }, [fotoId]);
+
   // Vista previa de la fotografía con anotaciones
   const claveFoto = d?.foto ? `${d.foto.blobId}|${JSON.stringify(d.medicion)}` : '';
   useEffect(() => {
@@ -238,6 +262,7 @@ export function EditorDano() {
       ancho: nt.unidad === 'm2' ? d.ancho : nt.propioDeBerma ? d.ancho : null,
     });
     setEligiendoTipo(false);
+    setFigura(null);
   };
 
   return (
@@ -268,6 +293,37 @@ export function EditorDano() {
       {/* Clasificación */}
       <div className="tarjeta">
         <h3>Clasificación del daño</h3>
+        {d.foto ? (
+          <div style={{ marginBottom: 14 }} data-testid="sugerencias">
+            <span className="campo" style={{ marginBottom: 6 }}><span className="etq">Sugerencia a partir de la fotografía</span></span>
+            {sugerencias == null ? (
+              <p className="meta">Analizando la fotografía…</p>
+            ) : sugerencias.length === 0 ? (
+              <p className="meta">No se pudo analizar la fotografía.</p>
+            ) : (
+              <>
+                <div className="sugerencias">
+                  {sugerencias.map((s, i) => (
+                    <button
+                      key={s.codigo}
+                      data-testid={`sugerencia-${i}`}
+                      className={'sugerencia' + (i === 0 ? ' principal' : '') + (d.tipo === s.codigo ? ' elegida' : '')}
+                      onClick={() => setFigura(s)}
+                    >
+                      <span className="rotulo">{i === 0 ? 'Más parecida' : `Alternativa ${i}`}</span>
+                      <span className="sigla">{s.codigo}</span>
+                      <span className="nombre">{tipoDano(s.codigo)?.nombre}</span>
+                    </button>
+                  ))}
+                </div>
+                <p className="meta tenue" style={{ marginTop: 8 }}>
+                  Es una ayuda, no un diagnóstico: toque una sigla para ver la fotografía y el esquema del manual y confirmar.
+                  {sugerencias.some((s) => s.porEjemploPropio) ? ' Tiene en cuenta daños parecidos que usted ya clasificó.' : ''}
+                </p>
+              </>
+            )}
+          </div>
+        ) : null}
         <button className="btn bloque" data-testid="elegir-tipo" style={{ justifyContent: 'flex-start', marginBottom: 12 }} onClick={() => setEligiendoTipo(true)}>
           {t ? (
             <>
@@ -427,6 +483,7 @@ export function EditorDano() {
         <button className="btn peligro" onClick={eliminar}>{Icono.borrar} Eliminar</button>
       </div>
       {eligiendoTipo ? <SelectorTipo alElegir={elegirTipo} alCerrar={() => setEligiendoTipo(false)} /> : null}
+      {figura ? <HojaFigura codigo={figura.codigo} variantes={figura.variantes} alElegir={elegirTipo} alCerrar={() => setFigura(null)} /> : null}
     </Pantalla>
   );
 }
