@@ -3,10 +3,11 @@
  * fotografía tomada: descriptor de la imagen y sugerencias de tipo.
  */
 import datosFiguras from '../assets/manual/figuras.json';
-import { listarEjemplosPropios, modificarDano, obtenerBlob } from '../data/db';
+import { modificarDano, obtenerBlob } from '../data/db';
 import { FIGURA_DE, type FiguraManual } from '../domain/figuras';
 import { DIM, describir, sugerir, type Sugerencia } from '../domain/similitud';
 import type { Dano } from '../domain/types';
+import { lecturaPara } from './conocimiento';
 import { cargarImagen, lienzo } from './imagen';
 
 const urls = import.meta.glob('../assets/manual/fig*.jpg', { eager: true, query: '?url', import: 'default' }) as Record<string, string>;
@@ -35,20 +36,28 @@ export async function describirFoto(foto: Blob): Promise<number[]> {
   return describir(ctx.getImageData(0, 0, c.width, c.height).data, c.width, c.height);
 }
 
+export interface ResultadoSugerencias {
+  sugerencias: Sugerencia[];
+  /** Ejemplos con que cuenta el motor de conocimiento (sin este registro) */
+  ejemplos: number;
+  /** El modelo de visión funciona en este dispositivo */
+  conVision: boolean;
+}
+
 /**
- * Sugerencias de tipo para el registro: la más probable y dos alternativas. Calcula y guarda el
- * descriptor de la fotografía si aún no lo tiene, y usa como ejemplos los demás registros que el
- * inspector ya clasificó.
+ * Sugerencias de tipo para el registro: la más probable y dos alternativas. Combina lo aprendido
+ * por el motor de conocimiento con la lectura por reglas de la fotografía.
  */
-export async function sugerenciasPara(d: Dano): Promise<Sugerencia[]> {
-  if (!d.foto) return [];
+export async function sugerenciasPara(d: Dano): Promise<ResultadoSugerencias> {
+  if (!d.foto) return { sugerencias: [], ejemplos: 0, conVision: false };
   let descriptor = d.descriptor?.length === DIM && d.descriptorFoto === d.foto.blobId ? d.descriptor : null;
   if (!descriptor) {
     const blob = await obtenerBlob(d.foto.blobId);
-    if (!blob) return [];
+    if (!blob) return { sugerencias: [], ejemplos: 0, conVision: false };
     descriptor = await describirFoto(blob);
     const blobId = d.foto.blobId;
     await modificarDano(d.id, (actual) => (actual.foto?.blobId === blobId ? { descriptor: descriptor!, descriptorFoto: blobId } : {}));
   }
-  return sugerir(descriptor, await listarEjemplosPropios(d.id));
+  const lectura = await lecturaPara(d).catch(() => null);
+  return { sugerencias: sugerir(descriptor, lectura ?? undefined), ejemplos: lectura?.ejemplos ?? 0, conVision: lectura != null };
 }

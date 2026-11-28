@@ -26,6 +26,7 @@ export const Icono = {
   mapa: ic('M9 4L3 6v14l6-2 6 2 6-2V4l-6 2zM9 4v14M15 6v14'),
   compartir: ic('M12 15V4M8 8l4-4 4 4M5 13v6h14v-6'),
   ok: ic('M5 12l5 5 9-10'),
+  aprender: ic('M12 3a6 6 0 00-3.500 10.900V16h7v-2.100A6 6 0 0012 3zM9.500 19h5M10.500 21.500h3'),
 };
 
 // ── Estructura de pantalla ──

@@ -1,0 +1,4 @@
+MobileNet v1 (alfa 0,50, 224 px) preentrenado en ImageNet, en formato TensorFlow.js.
+Origen: https://storage.googleapis.com/tfjs-models/tfjs/mobilenet_v1_0.50_224/ (TensorFlow, licencia Apache 2.0).
+Los pesos se reunieron en un solo archivo (pesos.bin) sin modificarlos.
+La aplicación lo usa solo como extractor de rasgos de las fotografías; no se reentrena.

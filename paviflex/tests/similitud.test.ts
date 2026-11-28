@@ -33,7 +33,7 @@ const red = (paso = 46, semilla = 5) => pavimento((x, y) => {
 const bache = (cx = 240, semilla = 7) => pavimento((x, y) => (((x - cx) / 95) ** 2 + ((y - 160) / 62) ** 2 < 1 ? 38 : null), semilla);
 const sano = () => pavimento(() => null, 11);
 const desc = (f: { d: Uint8ClampedArray; w: number; h: number }) => describir(f.d, f.w, f.h);
-const familias = (d: number[], propios = [] as { codigo: string; descriptor: number[] }[]) => sugerir(d, propios).map((s) => familiaDe(s.codigo)!.id);
+const familias = (d: number[]) => sugerir(d).map((s) => familiaDe(s.codigo)!.id);
 
 describe('sugerencia del tipo de daño a partir de la fotografía', () => {
   it('cada tipo de daño tiene su figura del manual y su familia visual', () => {
@@ -65,19 +65,20 @@ describe('sugerencia del tipo de daño a partir de la fotografía', () => {
     expect(s[0].variantes.sort()).toEqual(['FB', 'FIN']);
     expect(new Set(s.map((x) => familiaDe(x.codigo)!.id)).size).toBe(3);
   });
-  it('aprende de los registros que el inspector ya clasificó', () => {
-    // Sin ejemplos, una mancha oscura se propone como bache
-    expect(sugerir(desc(bache(240, 7)))[0].codigo).toBe('BCH');
-    // El inspector clasificó una mancha así como parche; la siguiente parecida se propone como parche
-    const propios = [{ codigo: 'PCH', descriptor: desc(bache(240, 7)) }];
-    const s = sugerir(desc(bache(250, 9)), propios);
-    expect(s[0].codigo).toBe('PCH');
-    expect(s[0].porEjemploPropio).toBe(true);
-    // ...sin alterar la lectura de fotografías distintas
-    expect(sugerir(desc(fisura()), propios)[0].codigo).toBe('FL');
-    // Dentro de una misma familia, el ejemplo propio decide la sigla
-    const transversal = [{ codigo: 'FT', descriptor: desc(fisura(0)) }];
-    expect(sugerir(desc(fisura(6)), transversal)[0].codigo).toBe('FT');
+  it('lo aprendido pesa según cuánto se parece la foto a ejemplos ya clasificados', () => {
+    const mancha = desc(bache());
+    // Sin conocimiento, una mancha oscura se propone como bache
+    expect(sugerir(mancha)[0].codigo).toBe('BCH');
+    // El motor encontró ejemplos muy parecidos clasificados como parche: manda lo aprendido
+    const seguro = sugerir(mancha, { votos: new Map([['PCH', 0.8], ['BCH', 0.2]]), confianza: 1 });
+    expect(seguro[0].codigo).toBe('PCH');
+    expect(seguro[0].porConocimiento).toBe(true);
+    // Los ejemplos se parecen poco a esta foto: siguen mandando las reglas
+    const dudoso = sugerir(mancha, { votos: new Map([['PCH', 1]]), confianza: 0.1 });
+    expect(dudoso[0].codigo).toBe('BCH');
+    expect(dudoso[0].porConocimiento).toBe(false);
+    // Dentro de una misma familia, lo aprendido decide la sigla
+    expect(sugerir(desc(fisura()), { votos: new Map([['FT', 1]]), confianza: 0.9 })[0].codigo).toBe('FT');
   });
   it('medición sobre las fotografías del manual (referencia, no garantía)', () => {
     // Las fotografías del manual son vistas oblicuas de la vía, no cenitales: sirven para saber

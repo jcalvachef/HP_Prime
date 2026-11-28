@@ -4,13 +4,13 @@
  * De la imagen se extraen rasgos de la estructura del pavimento: trazos oscuros (fisuras), su forma
  * y las celdas que encierran, manchas oscuras compactas, textura y color. Con ellos se hace una
  * lectura por reglas tomadas de las definiciones del manual (fisura aislada, red de fisuras, pérdida
- * de capa, textura superficial) y, además, se compara con las fotografías que el inspector ya
- * clasificó, que son las que mejor representan su cámara y su forma de fotografiar.
+ * de capa, textura superficial). Esa lectura es el respaldo mientras el motor de conocimiento
+ * (ver conocimiento.ts) no tiene ejemplos parecidos; cuando los tiene, pesa lo aprendido.
  *
  * No se compara directamente con las fotografías del manual: se midió y no sirve (son vistas
  * oblicuas de la vía, de baja resolución; la familia correcta quedó entre las tres primeras en
  * 11 de 36 fotografías). La lectura por reglas tampoco acierta en esas mismas fotografías (12 de
- * 36): está pensada para fotos cenitales y mejora con los ejemplos propios. Las figuras del manual
+ * 36): está pensada para fotos cenitales. Las figuras del manual
  * se muestran para que el inspector confirme. La sugerencia es una ayuda: no reemplaza el criterio
  * de quien inspecciona.
  */
@@ -266,18 +266,6 @@ export function describir(rgba: Uint8ClampedArray | Uint8Array, anchoOrigen: num
   ];
 }
 
-export interface Ejemplo {
-  codigo: string;
-  descriptor: number[];
-}
-
-/** Distancia entre descriptores (los rasgos ya están en la escala 0–1). */
-export function distancia(a: number[], b: number[]): number {
-  let s = 0;
-  for (let k = 0; k < DIM; k++) s += (a[k] - b[k]) ** 2;
-  return Math.sqrt(s / DIM);
-}
-
 /**
  * Familias de aspecto parecido. Dentro de una familia la fotografía sola no alcanza para decidir
  * (una fisura longitudinal y una transversal se ven igual sin saber hacia dónde va la vía), por eso
@@ -336,34 +324,32 @@ export function puntajeFamilias(d: number[]): Record<string, number> {
 export interface Sugerencia {
   codigo: string;
   puntaje: number;
-  /** La sugerencia viene de una fotografía propia ya clasificada, no solo de la lectura por reglas */
-  porEjemploPropio: boolean;
+  /** La sugerencia viene de lo aprendido con los registros del inspector, no solo de las reglas */
+  porConocimiento: boolean;
   /** Otras siglas de la misma familia visual */
   variantes: string[];
 }
 
-/** Qué tan cerca debe estar un ejemplo propio para pesar en la sugerencia. */
-const ALCANCE_EJEMPLO = 0.11;
+/** Lo que aporta el motor de conocimiento: voto de cada sigla y cuánto se parece la foto a algo ya visto. */
+export interface AporteConocimiento {
+  votos: Map<string, number>;
+  confianza: number;
+}
 
 /**
  * La sugerencia más probable y dos alternativas, cada una de una familia visual distinta.
- * `propios` son los registros que el inspector ya clasificó (con su descriptor).
+ * Combina lo aprendido (si la fotografía se parece a ejemplos ya clasificados) con la lectura por
+ * reglas, que es la que pesa mientras no hay ejemplos parecidos.
  */
-export function sugerir(descriptor: number[], propios: Ejemplo[] = [], cuantas = 3): Sugerencia[] {
+export function sugerir(descriptor: number[], conocimiento?: AporteConocimiento, cuantas = 3): Sugerencia[] {
   const reglas = puntajeFamilias(descriptor);
-  // Parecido con cada sigla según los ejemplos propios
-  const porEjemplo = new Map<string, number>();
-  for (const e of propios) {
-    if (e.descriptor.length !== DIM || !FAMILIA_DE.has(e.codigo)) continue;
-    const parecido = Math.exp(-((distancia(descriptor, e.descriptor) / ALCANCE_EJEMPLO) ** 2));
-    if (parecido > (porEjemplo.get(e.codigo) ?? 0)) porEjemplo.set(e.codigo, parecido);
-  }
-  const candidatos: { codigo: string; familia: string; puntaje: number; propio: boolean }[] = [];
+  const g = conocimiento?.confianza ?? 0;
+  const candidatos: { codigo: string; familia: string; puntaje: number; aprendido: boolean }[] = [];
   for (const f of FAMILIAS)
     f.codigos.forEach((codigo, i) => {
-      const base = 0.6 * (reglas[f.id] ?? 0) * (i === 0 ? 1 : 0.85);
-      const aprendido = porEjemplo.get(codigo) ?? 0;
-      candidatos.push({ codigo, familia: f.id, puntaje: base + aprendido, propio: aprendido > base && aprendido > 0.3 });
+      const base = (1 - g) * 0.6 * (reglas[f.id] ?? 0) * (i === 0 ? 1 : 0.85);
+      const aprendido = g * (conocimiento?.votos.get(codigo) ?? 0);
+      candidatos.push({ codigo, familia: f.id, puntaje: base + aprendido, aprendido: aprendido > base && aprendido > 0.1 });
     });
   candidatos.sort((a, b) => b.puntaje - a.puntaje);
   const usadas = new Set<string>();
@@ -374,7 +360,7 @@ export function sugerir(descriptor: number[], propios: Ejemplo[] = [], cuantas =
     res.push({
       codigo: c.codigo,
       puntaje: c.puntaje,
-      porEjemploPropio: c.propio,
+      porConocimiento: c.aprendido,
       variantes: candidatos.filter((x) => x.familia === c.familia && x.codigo !== c.codigo).map((x) => x.codigo),
     });
     if (res.length >= cuantas) break;

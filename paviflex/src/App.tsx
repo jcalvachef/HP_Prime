@@ -12,6 +12,7 @@ import { Medir } from './ui/Medir';
 import { Catalogo, DetalleCatalogo } from './ui/Catalogo';
 import { PantallaAjustes } from './ui/Ajustes';
 import { PantallaInforme } from './ui/Informe';
+import { PantallaConocimiento } from './ui/Conocimiento';
 
 /** Botón "atrás" de Android: retrocede en la navegación; en la pantalla inicial cierra la app. */
 function BotonAtras() {
@@ -50,6 +51,7 @@ export function App() {
           <Route path="/catalogo/:codigo" element={<DetalleCatalogo />} />
           <Route path="/ajustes" element={<PantallaAjustes />} />
           <Route path="/informe/:proyectoId" element={<PantallaInforme />} />
+          <Route path="/conocimiento" element={<PantallaConocimiento />} />
         </Routes>
       </HashRouter>
     </ProveedorAvisos>

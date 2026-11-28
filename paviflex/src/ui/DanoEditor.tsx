@@ -31,7 +31,8 @@ import { fotoParaInforme } from '../services/fotoAnotada';
 import { normalizarFoto } from '../services/imagen';
 import { componerPlano, MAPA_ESCALA, MAPA_H, MAPA_W, type Marcador } from '../services/mapa';
 import { elegirDeGaleria, esNativo, tomarFoto } from '../services/plataforma';
-import { sugerenciasPara } from '../services/manual';
+import { aprender } from '../services/conocimiento';
+import { sugerenciasPara, type ResultadoSugerencias } from '../services/manual';
 import { capturarPosicionDano, descargarFondoDano, useTareasDano } from '../services/tareasDano';
 import type { Sugerencia } from '../domain/similitud';
 import { HojaFigura } from './FiguraManual';
@@ -83,7 +84,7 @@ export function EditorDano() {
   const [urlFoto, setUrlFoto] = useState<string | null>(null);
   const [urlPlano, setUrlPlano] = useState<string | null>(null);
   const [ocupadoFoto, setOcupadoFoto] = useState(false);
-  const [sugerencias, setSugerencias] = useState<Sugerencia[] | null>(null);
+  const [resultado, setResultado] = useState<ResultadoSugerencias | null>(null);
   const [figura, setFigura] = useState<Sugerencia | null>(null);
   const { gps: gpsEstado, mapa: mapaEstado } = useTareasDano(id);
   const ref = useRef<Dano | null>(null);
@@ -180,15 +181,22 @@ export function EditorDano() {
   const fotoId = d?.foto?.blobId ?? '';
   useEffect(() => {
     let vivo = true;
-    setSugerencias(null);
+    setResultado(null);
     if (!fotoId || !ref.current) return;
     void sugerenciasPara(ref.current)
-      .then((s) => vivo && setSugerencias(s))
-      .catch(() => vivo && setSugerencias([]));
+      .then((r) => vivo && setResultado(r))
+      .catch(() => vivo && setResultado({ sugerencias: [], ejemplos: 0, conVision: false }));
     return () => {
       vivo = false;
     };
   }, [fotoId]);
+
+  // Motor de conocimiento: cada registro con fotografía y tipo queda como ejemplo; si el
+  // inspector corrige el tipo o repite la foto, el ejemplo se corrige con él.
+  const tipoActual = d?.tipo ?? '';
+  useEffect(() => {
+    if (ref.current && fotoId && tipoActual) void aprender(ref.current).catch(() => undefined);
+  }, [fotoId, tipoActual]);
 
   // Vista previa de la fotografía con anotaciones
   const claveFoto = d?.foto ? `${d.foto.blobId}|${JSON.stringify(d.medicion)}` : '';
@@ -250,7 +258,7 @@ export function EditorDano() {
   const eliminar = async () => {
     if (!window.confirm(`¿Eliminar el registro de la foto ${d.numero}?`)) return;
     ref.current = null;
-    await eliminarDano(d.id);
+    await eliminarDano(d.id, { olvidar: true });
     nav(-1);
   };
   const elegirTipo = (codigo: string) => {
@@ -264,6 +272,8 @@ export function EditorDano() {
     setEligiendoTipo(false);
     setFigura(null);
   };
+
+  const sugerencias = resultado?.sugerencias ?? null;
 
   return (
     <Pantalla
@@ -317,8 +327,14 @@ export function EditorDano() {
                   ))}
                 </div>
                 <p className="meta tenue" style={{ marginTop: 8 }}>
-                  Es una ayuda, no un diagnóstico: toque una sigla para ver la fotografía y el esquema del manual y confirmar.
-                  {sugerencias.some((s) => s.porEjemploPropio) ? ' Tiene en cuenta daños parecidos que usted ya clasificó.' : ''}
+                  Es una ayuda, no un diagnóstico: toque una sigla para ver la fotografía y el esquema del manual y confirmar.{' '}
+                  {!resultado?.conVision
+                    ? 'El motor de conocimiento no está disponible en este dispositivo: se usa solo la lectura de la fotografía.'
+                    : sugerencias.some((s) => s.porConocimiento)
+                      ? `Se apoya en daños parecidos entre los ${resultado.ejemplos} que usted ya clasificó.`
+                      : resultado.ejemplos
+                        ? `El motor de conocimiento tiene ${resultado.ejemplos} daños aprendidos, pero ninguno se parece lo suficiente a este.`
+                        : 'El motor de conocimiento aún no tiene ejemplos: aprenderá de cada daño que usted clasifique.'}
                 </p>
               </>
             )}

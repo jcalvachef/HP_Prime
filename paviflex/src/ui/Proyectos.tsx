@@ -39,6 +39,7 @@ export function Proyectos() {
       subtitulo="Inspección visual de pavimentos flexibles"
       acciones={
         <>
+          <button className="icono-btn" aria-label="Motor de conocimiento" onClick={() => nav('/conocimiento')}>{Icono.aprender}</button>
           <button className="icono-btn" aria-label="Manual de daños" onClick={() => nav('/catalogo')}>{Icono.libro}</button>
           <button className="icono-btn" aria-label="Ajustes" onClick={() => nav('/ajustes')}>{Icono.ajustes}</button>
         </>
