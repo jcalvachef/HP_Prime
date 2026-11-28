@@ -3,6 +3,7 @@
  * proyectos, sectores, registros de daño y los binarios (fotografías y mapas).
  */
 import { openDB, type IDBPDatabase } from 'idb';
+import type { EjemploConocimiento } from '../domain/conocimiento';
 import { descripcionAutomatica } from '../domain/formato';
 import { AJUSTES_POR_DEFECTO, type Ajustes, type Dano, type Proyecto, type Sector } from '../domain/types';
 
@@ -11,16 +12,23 @@ let promesa: Promise<IDBPDatabase> | null = null;
 
 function bd(): Promise<IDBPDatabase> {
   if (!promesa) {
-    promesa = openDB(NOMBRE_BD, 1, {
-      upgrade(db) {
-        db.createObjectStore('proyectos', { keyPath: 'id' });
-        const s = db.createObjectStore('sectores', { keyPath: 'id' });
-        s.createIndex('proyectoId', 'proyectoId');
-        const d = db.createObjectStore('danos', { keyPath: 'id' });
-        d.createIndex('sectorId', 'sectorId');
-        d.createIndex('proyectoId', 'proyectoId');
-        db.createObjectStore('blobs');
-        db.createObjectStore('kv');
+    promesa = openDB(NOMBRE_BD, 2, {
+      upgrade(db, anterior) {
+        if (anterior < 1) {
+          db.createObjectStore('proyectos', { keyPath: 'id' });
+          const s = db.createObjectStore('sectores', { keyPath: 'id' });
+          s.createIndex('proyectoId', 'proyectoId');
+          const d = db.createObjectStore('danos', { keyPath: 'id' });
+          d.createIndex('sectorId', 'sectorId');
+          d.createIndex('proyectoId', 'proyectoId');
+          db.createObjectStore('blobs');
+          db.createObjectStore('kv');
+        }
+        if (anterior < 2) {
+          // Motor de conocimiento: ejemplos clasificados y vectores de rasgos de las fotografías
+          db.createObjectStore('ejemplos', { keyPath: 'id' });
+          db.createObjectStore('vectores');
+        }
       },
     });
     void navigator.storage?.persist?.().catch(() => false);
@@ -115,16 +123,27 @@ export async function modificarDano(id: string, cambio: Partial<Dano> | ((actual
   avisarCambio(n);
   return n;
 }
-export async function eliminarDano(id: string): Promise<void> {
+/**
+ * Elimina el registro con su fotografía y su mapa. Con `olvidar` también se retira su ejemplo del
+ * motor de conocimiento (se usa al borrar un registro suelto, que suele ser un error de captura);
+ * al borrar un sector o un proyecto completo lo aprendido se conserva.
+ */
+export async function eliminarDano(id: string, op: { olvidar?: boolean } = {}): Promise<void> {
   const db = await bd();
   const d = (await db.get('danos', id)) as Dano | undefined;
   if (d?.foto) {
-    await db.delete('blobs', d.foto.blobId);
+    await eliminarBlob(d.foto.blobId);
     await db.delete('blobs', d.foto.miniId);
   }
   if (d?.mapa) await db.delete('blobs', d.mapa.blobId);
   await db.delete('danos', id);
+  if (op.olvidar) await eliminarEjemplo(id);
 }
+/** Todos los registros de daño, de todos los proyectos. */
+export async function listarTodosLosDanos(): Promise<Dano[]> {
+  return (await (await bd()).getAll('danos')) as Dano[];
+}
+
 export async function siguienteNumero(sectorId: string): Promise<number> {
   const ds = await listarDanos(sectorId);
   return ds.reduce((m, d) => Math.max(m, d.numero), 0) + 1;
@@ -145,7 +164,38 @@ export async function obtenerBlob(id: string): Promise<Blob | undefined> {
   return reg ? new Blob([reg.datos], { type: reg.tipo }) : undefined;
 }
 export async function eliminarBlob(id: string): Promise<void> {
-  await (await bd()).delete('blobs', id);
+  const db = await bd();
+  await db.delete('blobs', id);
+  await db.delete('vectores', id);
+}
+
+// ── Motor de conocimiento ──
+let cacheEjemplos: EjemploConocimiento[] | null = null;
+export async function listarEjemplos(): Promise<EjemploConocimiento[]> {
+  if (!cacheEjemplos) cacheEjemplos = (await (await bd()).getAll('ejemplos')) as EjemploConocimiento[];
+  return cacheEjemplos;
+}
+export async function guardarEjemplos(ejemplos: EjemploConocimiento[]): Promise<void> {
+  const tx = (await bd()).transaction('ejemplos', 'readwrite');
+  for (const e of ejemplos) await tx.store.put(e);
+  await tx.done;
+  cacheEjemplos = null;
+}
+export async function eliminarEjemplo(id: string): Promise<void> {
+  await (await bd()).delete('ejemplos', id);
+  cacheEjemplos = null;
+}
+export async function vaciarEjemplos(): Promise<void> {
+  await (await bd()).clear('ejemplos');
+  cacheEjemplos = null;
+}
+/** Vector de rasgos ya calculado para una fotografía (por id del binario), si es del modelo actual. */
+export async function obtenerVector(fotoId: string, modelo: string): Promise<Float32Array | undefined> {
+  const r = (await (await bd()).get('vectores', fotoId)) as { modelo: string; vector: Float32Array } | undefined;
+  return r && r.modelo === modelo ? r.vector : undefined;
+}
+export async function guardarVector(fotoId: string, modelo: string, vector: Float32Array): Promise<void> {
+  await (await bd()).put('vectores', { modelo, vector }, fotoId);
 }
 
 // ── Ajustes ──

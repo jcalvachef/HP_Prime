@@ -68,7 +68,7 @@ export function impedimentoMapa(aj: AjustesMapa): string | null {
 
 // ───────────── Descarga de imágenes ─────────────
 
-const AGENTE = 'PaviFlex/1.1 (co.calvache.paviflex)';
+const AGENTE = 'PaviFlex/1.3 (co.calvache.paviflex)';
 
 type Descarga = { blob: Blob | null; estado: number; cuerpo: string };
 

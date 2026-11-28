@@ -2,6 +2,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { CATEGORIAS, NOMBRE_SEVERIDAD, SEVERIDADES, TIPOS_DANO, etiquetaUnidad, tipoDano } from '../domain/catalogo';
 import { COLOR_SEV } from './colores';
 import { Pantalla } from './comunes';
+import { ImagenFigura } from './FiguraManual';
 
 export function Catalogo() {
   const nav = useNavigate();
@@ -34,6 +35,7 @@ export function DetalleCatalogo() {
   return (
     <Pantalla titulo={`${t.codigo} · ${t.nombre}`} subtitulo={`Numeral ${t.numeral} · unidad de medida: ${etiquetaUnidad(t.unidad)}`} atras>
       <div className="tarjeta manual">
+        <ImagenFigura codigo={t.codigo} />
         <h3>Definición</h3>
         <p>{t.definicion}</p>
         <h3>Causas</h3>

@@ -16,6 +16,7 @@ import { siglaRegistro, tipoDano } from '../domain/catalogo';
 import { fmtNum, fmtPct, fmtPR, hoyISO, parseNum, parsePR, textoDimensiones } from '../domain/formato';
 import type { Dano, Sector } from '../domain/types';
 import { graficaSeveridades, graficaTramos } from '../report/graficas';
+import { exportarPuntos } from '../services/exportarKml';
 import { Campo, ChipSeveridad, EntradaValor, Icono, Miniatura, Pantalla, Texto, useAviso, useCarga } from './comunes';
 
 function sectorVacio(proyectoId: string, levantadoPor: string): Sector {
@@ -173,6 +174,7 @@ export function VistaSector() {
   const nav = useNavigate();
   const avisar = useAviso();
   const [pestana, setPestana] = useState<'danos' | 'resumen'>('danos');
+  const [exportando, setExportando] = useState(false);
   const { datos } = useCarga(async () => {
     const s = await obtenerSector(id);
     // Se descartan los registros abandonados sin tipo ni fotografía
@@ -259,6 +261,26 @@ export function VistaSector() {
             </div>
           ) : null}
           {danos.length === 0 ? <div className="vacio">El análisis aparecerá cuando registre daños.</div> : null}
+          {danos.length ? (
+            <button
+              className="btn bloque"
+              data-testid="exportar-kmz-sector"
+              style={{ marginBottom: 12 }}
+              disabled={exportando}
+              onClick={async () => {
+                setExportando(true);
+                try {
+                  avisar(await exportarPuntos('kmz', s.proyectoId, s.id));
+                } catch (e) {
+                  avisar(String((e as Error).message ?? e));
+                } finally {
+                  setExportando(false);
+                }
+              }}
+            >
+              {Icono.mapa} {exportando ? 'Exportando…' : 'Exportar los puntos del sector (KMZ)'}
+            </button>
+          ) : null}
           <TablaGrupo g={analisis.grupos.carriles} />
           <TablaGrupo g={analisis.grupos.superficiales} />
           <TablaGrupo g={analisis.grupos.bermas} />

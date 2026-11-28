@@ -71,11 +71,10 @@ const DIBUJO_FOTO = (semilla, tipo) => `
   ctx.fillStyle = '#111'; for (let i = 1; i < 10; i++) ctx.fillRect(i * 80 - 1.5, -17, 3, 34);
   ctx.restore();
 `;
-const fotos = {
-  pc: await lienzoABytes(DIBUJO_FOTO(11, 'pc'), 1600, 1200),
-  fl: await lienzoABytes(DIBUJO_FOTO(23, 'fl'), 1600, 1200),
-  bch: await lienzoABytes(DIBUJO_FOTO(37, 'bch'), 1600, 1200),
-};
+// Cada daño lleva una fotografía distinta (otra semilla): el motor de conocimiento debe reconocer
+// un daño parecido, no la misma imagen.
+const fotoDe = (tipo, n) => lienzoABytes(DIBUJO_FOTO(11 + n * 13, tipo), 1600, 1200);
+const fotos = { pc: await fotoDe('pc', 0), fl: await fotoDe('fl', 0), bch: await fotoDe('bch', 0) };
 for (const [k, v] of Object.entries(fotos)) writeFileSync(join(SALIDA, `foto-${k}.jpg`), v);
 // Teselas de prueba: tablero con la clave z/x/y de cada una, para comprobar que el mosaico calza.
 // Algunas se responden como inexistentes (404) y otras como "sin datos" (gris uniforme), para
@@ -195,11 +194,39 @@ for (const d of danos) {
   await page.getByTestId('nuevo-dano').click();
   await page.getByTestId('tomar-foto').waitFor();
   const [selector] = await Promise.all([page.waitForEvent('filechooser'), page.getByTestId('tomar-foto').click()]);
-  await selector.setFiles({ name: `foto${n}.jpg`, mimeType: 'image/jpeg', buffer: fotos[d.foto] });
+  const bytesFoto = await fotoDe(d.foto, n);
+  writeFileSync(join(SALIDA, `dano-${String(n).padStart(2, '0')}-${d.foto}.jpg`), bytesFoto);
+  await selector.setFiles({ name: `foto${n}.jpg`, mimeType: 'image/jpeg', buffer: bytesFoto });
   await page.getByTestId('foto').waitFor();
-  await page.getByTestId('elegir-tipo').click();
-  if (n === 1) await captura('03-selector-tipo');
-  await page.getByTestId(`tipo-${d.tipo}`).click();
+  // Sugerencia automática: la más parecida y dos alternativas
+  await page.getByTestId('sugerencia-0').waitFor({ timeout: 20000 });
+  d.sugerencias = (await page.getByTestId('sugerencias').locator('.sugerencia .sigla').allInnerTexts()).join(', ');
+  d.aprendido = /Se apoya en daños parecidos/.test(await page.getByTestId('sugerencias').innerText());
+  // El motor aprende de los daños ya clasificados: la cuarta foto (red de fisuras) y la sexta (mancha)
+  // se parecen a la primera y a la tercera, y deben proponerse con la sigla que se les dio.
+  if (n === 4 && !(d.sugerencias.startsWith('PC') && d.aprendido)) throw new Error('El motor no reconoció una piel de cocodrilo ya aprendida: ' + d.sugerencias);
+  if (n === 6 && !(d.sugerencias.startsWith('BCH') && d.aprendido)) throw new Error('El motor no reconoció un bache ya aprendido: ' + d.sugerencias);
+  if (n === 4) { await page.getByTestId('sugerencias').scrollIntoViewIfNeeded(); await captura('03d-sugerencia-aprendida'); }
+  if (n === 1) {
+    // El primer daño se clasifica desde la sugerencia, viendo la figura del manual y sus variantes
+    await page.getByTestId('sugerencias').scrollIntoViewIfNeeded();
+    await captura('03a-sugerencias');
+    await page.getByTestId('sugerencia-0').click();
+    const fig = page.getByTestId('figura-manual');
+    await fig.waitFor();
+    await page.waitForFunction(() => { const i = document.querySelector('[data-testid="figura-manual"]'); return i && i.complete && i.naturalWidth > 600; });
+    await captura('03b-figura-manual');
+    await page.getByTestId('variante-FB').click();
+    await page.getByText('Fisuras en bloque').first().waitFor();
+    await captura('03c-figura-variante');
+    await page.getByTestId(`variante-${d.tipo}`).click();
+    await page.getByTestId('elegir-figura').click();
+    await page.getByTestId('figura-manual').waitFor({ state: 'detached' });
+  } else {
+    await page.getByTestId('elegir-tipo').click();
+    if (n === 2) await captura('03-selector-tipo');
+    await page.getByTestId(`tipo-${d.tipo}`).click();
+  }
   if (d.sev) await page.getByTestId(`sev-${d.sev}`).click();
   if (d.berma) await page.getByText('El daño está en la berma').click();
   await llenar('d-abscisa', d.abscisa);
@@ -266,8 +293,43 @@ await page.waitForTimeout(500);
 await captura('10-sector-analisis');
 await page.screenshot({ path: join(SALIDA, '11-sector-analisis-completo.png'), fullPage: true });
 
-// ── Informe ──
+// ── Motor de conocimiento: lo aprendido, exportarlo, reconstruirlo desde los registros ──
 await page.getByLabel('Volver').click();
+await page.getByLabel('Volver').click();
+await page.getByLabel('Motor de conocimiento').click();
+await page.getByText('listo · WebAssembly').waitFor({ timeout: 30000 });
+const totalEjemplos = () => page.getByTestId('total-ejemplos').innerText();
+await page.waitForFunction(() => document.querySelector('[data-testid="total-ejemplos"]')?.textContent === '10');
+await page.waitForTimeout(300);
+await captura('15-motor-conocimiento');
+const [archivoConocimiento] = await Promise.all([page.waitForEvent('download'), page.getByTestId('exportar-conocimiento').click()]);
+await archivoConocimiento.saveAs(join(SALIDA, 'conocimiento.json'));
+await page.getByText('10 ejemplos exportados').waitFor();
+await page.getByRole('button', { name: 'Borrar todo lo aprendido' }).click();
+await page.getByText('Motor de conocimiento vaciado').waitFor();
+if ((await totalEjemplos()) !== '0') throw new Error('El motor no quedó vacío');
+// Los registros siguen ahí: se pueden volver a incorporar
+await page.getByTestId('incorporar').click();
+await page.getByText('10 registros incorporados').waitFor({ timeout: 60000 });
+if ((await totalEjemplos()) !== '10') throw new Error('No se reincorporaron los registros');
+// Importar el archivo exportado no duplica lo que ya está
+const [selConocimiento] = await Promise.all([page.waitForEvent('filechooser'), page.getByTestId('importar-conocimiento').click()]);
+await selConocimiento.setFiles(join(SALIDA, 'conocimiento.json'));
+await page.getByText('0 ejemplos incorporados (10 ya estaban)').waitFor();
+await page.getByLabel('Volver').click();
+await page.getByText('Inspección visual vía Mocoa – San Francisco').first().click();
+await page.getByTestId('nuevo-sector').waitFor();
+
+// ── Puntos de inspección en KML y KMZ ──
+for (const fmt of ['kml', 'kmz']) {
+  const [descarga] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.getByTestId(`exportar-${fmt}`).click()]);
+  await descarga.saveAs(join(SALIDA, `puntos.${fmt}`));
+  await page.getByText('10 puntos exportados').waitFor();
+}
+await page.getByTestId('exportar-kmz').scrollIntoViewIfNeeded();
+await captura('11b-exportar-puntos');
+
+// ── Informe ──
 await page.getByTestId('ir-informe').click();
 await captura('12-informe');
 for (const fmt of ['pdf', 'docx']) {
@@ -299,11 +361,12 @@ if (teselasOsm < 60) throw new Error('No se pidieron las teselas de OpenStreetMa
 
 writeFileSync(
   join(SALIDA, 'resultado.json'),
-  JSON.stringify({ errores, peticionesMapa, respaldos, otrosHosts, danos: danos.map(({ tipo, lectura, largoMedido, anchoMedido, coords }) => ({ tipo, lectura, largoMedido, anchoMedido, coords })) }, null, 1),
+  JSON.stringify({ errores, peticionesMapa, respaldos, otrosHosts, danos: danos.map(({ tipo, foto, sugerencias, lectura, largoMedido, anchoMedido, coords }) => ({ tipo, foto, sugerencias, lectura, largoMedido, anchoMedido, coords })) }, null, 1),
 );
 console.log('errores:', errores.length ? errores : 'ninguno');
 console.log('teselas pedidas:', peticionesMapa, '· con respaldo:', respaldos, '· de la capa de vías:', superpuestas, '· de OpenStreetMap:', teselasOsm, '· otros proveedores consultados:', otrosHosts.length);
 console.log(JSON.stringify(danos[0], null, 1));
 console.log('largo FL medido:', danos[1].largoMedido);
+console.log('sugerencias:', danos.map((d) => `${d.foto}→${d.tipo}: [${d.sugerencias}]${d.aprendido ? '*' : ''}`).join(' | '), '(* = por lo aprendido)');
 await navegador.close();
 process.exit(errores.length || otrosHosts.length ? 1 : 0);

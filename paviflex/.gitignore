@@ -3,3 +3,4 @@ dist/
 e2e/salida/
 *.log
 .DS_Store
+public/tfjs/
